@@ -90,6 +90,17 @@ export const useSessionStore = defineStore('session', () => {
     }
   }
 
+  // 加载分析结果
+  async function loadResults() {
+    if (!sessionId.value) return
+    try {
+      const res = await api.getSessionHistory(sessionId.value)
+      analysisResults.value = res.analysis_results || {}
+    } catch (e) {
+      console.error('加载分析结果失败:', e)
+    }
+  }
+
   // 添加聊天消息
   function addMessage(role, content) {
     chatHistory.value.push({ role, content })
@@ -111,6 +122,7 @@ export const useSessionStore = defineStore('session', () => {
     sessions,
     createSession,
     loadHistory,
+    loadResults,
     loadSessions,
     switchSession,
     deleteSession,

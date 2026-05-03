@@ -9,6 +9,7 @@ from agents.matcher_agent import MatcherAgent
 from agents.resume_writer_agent import ResumeWriterAgent
 from agents.interview_qa_agent import InterviewQAAgent
 from tools.db_memory import GlobalSQLMemory
+from tools.langfuse_tracer import flush_langfuse
 
 
 class AgentState(TypedDict, total=False):
@@ -175,12 +176,14 @@ class PlannerAgent:
         return result.get("final_report", {"error": "流程执行异常"})
     
     async def run_stream(self, jd_text: str, resume_content: str,
-                         memory: Optional[GlobalSQLMemory] = None) -> AsyncIterator[str]:
+                         memory: Optional[GlobalSQLMemory] = None,
+                         session_id: str = None) -> AsyncIterator[str]:
         """
         流式运行分析流程，逐步输出每个Agent的结果
         :param jd_text: JD文本
         :param resume_content: 简历文本
         :param memory: 记忆存储
+        :param session_id: 会话ID（用于Langfuse追踪）
         """
         yield "## 🚀 智能求职分析开始 (启用LangGraph并行加速)\n\n"
         yield "---\n\n"
@@ -192,12 +195,12 @@ class PlannerAgent:
         resume_result = None
         
         async def par_jd():
-            res = await self.job_parser.parse_jd(jd_text)
+            res = await self.job_parser.parse_jd(jd_text, session_id=session_id)
             if memory: memory.save_analysis_result("jd_result", res)
             return res
             
         async def par_resume():
-            res = await self.resume_analyzer.analyze_resume(resume_content)
+            res = await self.resume_analyzer.analyze_resume(resume_content, session_id=session_id)
             if memory: memory.save_analysis_result("resume_result", res)
             return res
 
@@ -219,9 +222,23 @@ class PlannerAgent:
         yield "### Step 2/3: 简历JD匹配分析\n\n"
         matcher_result = None
         try:
-            async for chunk in self.matcher.match_stream(jd_result, resume_result):
-                yield chunk
-            matcher_result = await self.matcher.match(jd_result, resume_result)
+            yield f"🔗 **MatcherAgent** 正在进行匹配分析...\n\n"
+            matcher_result = await self.matcher.match(jd_result, resume_result, session_id=session_id)
+            
+            m = matcher_result['matcher_result']
+            yield f"✅ 匹配分析完成！\n\n"
+            yield f"**匹配度评分**: {m['match_score']}/100\n\n"
+            yield f"**优势**:\n"
+            for adv in m['advantages']:
+                yield f"- ✅ {adv}\n"
+            yield f"\n**不足**:\n"
+            for sc in m['shortcomings']:
+                yield f"- ⚠️ {sc}\n"
+            yield f"\n**优化建议**:\n"
+            for sug in m['optimization_suggestions']:
+                yield f"- 💡 {sug}\n"
+            yield "\n"
+            
             if memory:
                 memory.save_analysis_result("matcher_result", matcher_result)
                 # === 长期记忆：自动提取弱项/优势写入用户画像 ===
@@ -243,7 +260,7 @@ class PlannerAgent:
         interview_qa = None
         
         async def par_write():
-            res = await self.resume_writer.write_resume(resume_result, jd_result, matcher_result)
+            res = await self.resume_writer.write_resume(resume_result, jd_result, matcher_result, session_id=session_id)
             if memory: memory.save_analysis_result("optimized_resume", res)
             return res
             
@@ -252,7 +269,7 @@ class PlannerAgent:
             if memory:
                 # 获取系统用户画像记录
                 user_profile = memory.get_user_profile("default_user")
-            res = await self.interview_qa.generate_qa(jd_result, resume_result, user_profile)
+            res = await self.interview_qa.generate_qa(jd_result, resume_result, user_profile, session_id=session_id)
             if memory: memory.save_analysis_result("interview_qa", res)
             return res
             
@@ -275,3 +292,6 @@ class PlannerAgent:
         yield "---\n\n"
         yield "## ✅ 全部分析完成！\n\n"
         yield "您可以在聊天框中继续提问（如“帮我列出技术面试题”、“看看我的简历优化了哪里”），我会结合分析结果为您详细解答。\n"
+        
+        # 刷新 Langfuse 缓冲区，确保追踪数据已发送
+        flush_langfuse()

@@ -4,6 +4,7 @@ from typing import AsyncIterator
 from langchain_core.messages import SystemMessage, HumanMessage
 from jsonschema import validate, ValidationError
 from tools.llm_client import get_llm_client
+from tools.langfuse_tracer import build_langfuse_invoke_kwargs
 from config.prompts import JOB_PARSER_PROMPT
 from config.config import MAX_RETRY
 
@@ -50,10 +51,11 @@ class JobParserAgent:
             text = text[:-3]
         return text.strip()
     
-    async def parse_jd(self, jd_text: str) -> dict:
+    async def parse_jd(self, jd_text: str, session_id: str = None) -> dict:
         """
         解析JD文本，返回结构化JSON
         :param jd_text: 用户粘贴的JD文本
+        :param session_id: 会话ID（用于Langfuse追踪）
         :return: 结构化解析结果
         """
         messages = [
@@ -61,9 +63,16 @@ class JobParserAgent:
             HumanMessage(content=f"请解析以下JD文本：\n{jd_text}")
         ]
         
+        # Langfuse 追踪
+        invoke_kwargs = build_langfuse_invoke_kwargs(
+            trace_name=self.name,
+            session_id=session_id,
+            tags=["jd-parsing"],
+        )
+        
         for attempt in range(MAX_RETRY + 1):
             try:
-                response = await self.llm.ainvoke(messages)
+                response = await self.llm.ainvoke(messages, **invoke_kwargs)
                 cleaned = self._clean_json_response(response.content)
                 result = json.loads(cleaned)
                 validate(instance=result, schema=JD_PARSER_SCHEMA)

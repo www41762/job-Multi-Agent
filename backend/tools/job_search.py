@@ -4,10 +4,14 @@
 支持按关键词、城市、薪资范围搜索，返回结构化的岗位列表
 未来可无缝替换为真实招聘平台 API（如 Boss直聘/猎聘/拉勾）
 """
+import os
 import json
+import logging
 from typing import List, Optional
 from langchain_core.messages import SystemMessage, HumanMessage
 from tools.llm_client import get_llm_client
+
+logger = logging.getLogger(__name__)
 
 SEARCH_SYSTEM_PROMPT = """你是一个专业的招聘信息生成系统。用户会给你搜索条件（关键词、城市、薪资范围等），
 你需要根据这些条件，生成 5 条高度真实、结构化的招聘岗位信息。
@@ -40,6 +44,9 @@ class JobSearchTool:
 
     def __init__(self):
         self.llm = get_llm_client(streaming=False)
+        self.mcp_cmd = os.getenv("JOB_MCP_CMD", "")
+        self.mcp_args = os.getenv("JOB_MCP_ARGS", "")
+        self.mcp_tool_name = os.getenv("JOB_MCP_TOOL_NAME", "search_jobs")
 
     def _clean_json_response(self, text: str) -> str:
         text = text.strip()
@@ -50,6 +57,40 @@ class JobSearchTool:
         if text.endswith("```"):
             text = text[:-3]
         return text.strip()
+
+    async def _search_via_mcp(self, keyword, city, salary_min, salary_max, experience):
+        """通过 MCP 客户端调用外部能力获取岗位"""
+        try:
+            from mcp.client.session import ClientSession
+            from mcp.client.stdio import stdio_client, StdioServerParameters
+        except ImportError:
+            logger.warning("mcp 包未安装，请执行 pip install mcp")
+            return None
+
+        args = self.mcp_args.split() if self.mcp_args else []
+        server_params = StdioServerParameters(command=self.mcp_cmd, args=args)
+        
+        try:
+            async with stdio_client(server_params) as (read, write):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    
+                    result = await session.call_tool(self.mcp_tool_name, arguments={
+                        "keyword": keyword,
+                        "city": city,
+                        "salary_min": salary_min,
+                        "salary_max": salary_max,
+                        "experience": experience
+                    })
+                    
+                    if hasattr(result, "content") and len(result.content) > 0:
+                        text = result.content[0].text
+                        cleaned = self._clean_json_response(text)
+                        return json.loads(cleaned)
+                    return []
+        except Exception as e:
+            logger.error(f"MCP 调用失败: {str(e)}")
+            return None
 
     async def search(
         self,
@@ -68,6 +109,12 @@ class JobSearchTool:
         :param experience: 经验要求（如 "1-3年"、"应届"）
         :return: 岗位列表
         """
+        # 测试是否启用 MCP
+        if self.mcp_cmd:
+            mcp_results = await self._search_via_mcp(keyword, city, salary_min, salary_max, experience)
+            if mcp_results is not None:
+                return mcp_results
+
         conditions = [f"关键词：{keyword}"]
         if city:
             conditions.append(f"城市：{city}")

@@ -5,6 +5,7 @@ from typing import AsyncIterator
 from langchain_core.messages import SystemMessage, HumanMessage
 from jsonschema import validate, ValidationError
 from tools.llm_client import get_llm_client
+from tools.langfuse_tracer import build_langfuse_invoke_kwargs
 from config.prompts import INTERVIEW_QA_PROMPT
 from config.config import MAX_RETRY
 
@@ -73,12 +74,13 @@ class InterviewQAAgent:
             text = text[:-3]
         return text.strip()
 
-    async def generate_qa(self, jd_result: dict, resume_result: dict, user_profile: dict = None) -> dict:
+    async def generate_qa(self, jd_result: dict, resume_result: dict, user_profile: dict = None, session_id: str = None) -> dict:
         """
         生成面试题库
         :param jd_result: JD解析结果
         :param resume_result: 简历解析结果
         :param user_profile: 用户长期画像(包含历史弱项等)
+        :param session_id: 会话ID（用于Langfuse追踪）
         :return: 面试题库
         """
         prompt_addition = ""
@@ -103,9 +105,16 @@ class InterviewQAAgent:
             HumanMessage(content=input_text)
         ]
 
+        # Langfuse 追踪
+        invoke_kwargs = build_langfuse_invoke_kwargs(
+            trace_name=self.name,
+            session_id=session_id,
+            tags=["interview-qa"],
+        )
+
         for attempt in range(MAX_RETRY + 1):
             try:
-                response = await self.llm.ainvoke(messages)
+                response = await self.llm.ainvoke(messages, **invoke_kwargs)
                 cleaned = self._clean_json_response(response.content)
                 result = json.loads(cleaned)
                 validate(instance=result, schema=INTERVIEW_QA_SCHEMA)

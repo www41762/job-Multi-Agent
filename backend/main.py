@@ -20,6 +20,7 @@ from tools.llm_client import get_llm_client, stream_llm_response
 from tools.db_memory import get_sql_memory_store as get_memory_store, list_sql_sessions as list_sessions, list_sql_sessions_rich
 from config.prompts import CHAT_ASSISTANT_PROMPT
 from config.config import RESUMES_DIR
+from tools.langfuse_tracer import get_langfuse_callback, flush_langfuse, build_langfuse_invoke_kwargs
 
 app = FastAPI(title="多Agent智能求职助手", version="1.0.0")
 
@@ -154,10 +155,16 @@ async def analyze_stream(
     
     async def event_generator():
         """SSE事件生成器"""
+        full_content = ""
         try:
-            async for chunk in planner.run_stream(jd_text, resume_content, memory):
+            async for chunk in planner.run_stream(jd_text, resume_content, memory, session_id=session_id):
+                full_content += chunk
                 # SSE格式: data: xxx\n\n
                 yield f"data: {json.dumps({'type': 'content', 'data': chunk}, ensure_ascii=False)}\n\n"
+            
+            # 将完整的分析流式内容保存为聊天记录，刷新后可恢复
+            if full_content.strip():
+                memory.add_chat_message("assistant", full_content)
             
             # 分析完成后自动生成会话标题
             try:
@@ -299,14 +306,23 @@ async def chat_stream(request: ChatRequest):
     
     async def event_generator():
         """SSE流式输出聊天回复"""
+        # Langfuse 追踪聊天流式调用
+        lf_handler, lf_metadata = get_langfuse_callback(
+            trace_name="ChatStream",
+            session_id=request.session_id,
+            tags=["chat"],
+        )
+        chat_callbacks = [lf_handler] if lf_handler else None
+        
         full_response = ""
         try:
-            async for chunk in stream_llm_response(messages):
+            async for chunk in stream_llm_response(messages, callbacks=chat_callbacks):
                 full_response += chunk
                 yield f"data: {json.dumps({'type': 'content', 'data': chunk}, ensure_ascii=False)}\n\n"
             
             # 保存AI回复到记忆
             memory.add_chat_message("assistant", full_response)
+            flush_langfuse()  # 确保追踪数据已发送
             yield f"data: {json.dumps({'type': 'done', 'data': ''}, ensure_ascii=False)}\n\n"
         except Exception as e:
             error_msg = f"回复生成失败: {str(e)}"
@@ -399,4 +415,4 @@ async def health_check():
 if __name__ == "__main__":
     import uvicorn
     from config.config import BACKEND_PORT
-    uvicorn.run("main:app", host="0.0.0.0", port=BACKEND_PORT, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=BACKEND_PORT, reload=False)

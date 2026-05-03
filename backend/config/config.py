@@ -25,6 +25,12 @@ CHAT_HISTORY_DIR = os.path.join(DATA_DIR, "chat_history")
 for d in [DATA_DIR, RESUMES_DIR, VECTOR_DB_DIR, CHAT_HISTORY_DIR]:
     os.makedirs(d, exist_ok=True)
 
+# Langfuse 可观测性配置
+LANGFUSE_ENABLED = os.getenv("LANGFUSE_ENABLED", "false").lower() == "true"
+LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY", "")
+LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY", "")
+LANGFUSE_HOST = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")  # 自部署则改为自己的地址
+
 # 服务配置
 BACKEND_PORT = int(os.getenv("BACKEND_PORT", "8000"))
 MAX_RETRY = 2  # Agent重试次数

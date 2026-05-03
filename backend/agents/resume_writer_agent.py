@@ -3,6 +3,7 @@ import json
 from typing import AsyncIterator
 from langchain_core.messages import SystemMessage, HumanMessage
 from tools.llm_client import get_llm_client, stream_llm_response
+from tools.langfuse_tracer import build_langfuse_invoke_kwargs
 from config.prompts import RESUME_WRITER_PROMPT
 from config.config import MAX_RETRY
 
@@ -24,12 +25,13 @@ class ResumeWriterAgent:
             text = text[:-3]
         return text.strip()
     
-    async def write_resume(self, resume_result: dict, jd_result: dict, matcher_result: dict) -> dict:
+    async def write_resume(self, resume_result: dict, jd_result: dict, matcher_result: dict, session_id: str = None) -> dict:
         """
         优化简历
         :param resume_result: 简历解析结果
         :param jd_result: JD解析结果
         :param matcher_result: 匹配分析结果
+        :param session_id: 会话ID（用于Langfuse追踪）
         :return: 优化后的简历
         """
         input_text = f"""请根据以下信息优化简历：
@@ -48,9 +50,16 @@ class ResumeWriterAgent:
             HumanMessage(content=input_text)
         ]
         
+        # Langfuse 追踪
+        invoke_kwargs = build_langfuse_invoke_kwargs(
+            trace_name=self.name,
+            session_id=session_id,
+            tags=["resume-writing"],
+        )
+        
         for attempt in range(MAX_RETRY + 1):
             try:
-                response = await self.llm.ainvoke(messages)
+                response = await self.llm.ainvoke(messages, **invoke_kwargs)
                 cleaned = self._clean_json_response(response.content)
                 result = json.loads(cleaned)
                 if "optimized_resume" in result:

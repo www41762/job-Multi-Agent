@@ -4,6 +4,7 @@ from typing import AsyncIterator
 from langchain_core.messages import SystemMessage, HumanMessage
 from jsonschema import validate, ValidationError
 from tools.llm_client import get_llm_client
+from tools.langfuse_tracer import build_langfuse_invoke_kwargs
 from config.prompts import RESUME_ANALYZER_PROMPT
 from config.config import MAX_RETRY
 
@@ -60,10 +61,11 @@ class ResumeAnalyzerAgent:
             text = text[:-3]
         return text.strip()
     
-    async def analyze_resume(self, resume_content: str) -> dict:
+    async def analyze_resume(self, resume_content: str, session_id: str = None) -> dict:
         """
         解析简历文本，返回结构化JSON
         :param resume_content: 简历文本内容
+        :param session_id: 会话ID（用于Langfuse追踪）
         :return: 结构化解析结果
         """
         messages = [
@@ -71,9 +73,16 @@ class ResumeAnalyzerAgent:
             HumanMessage(content=f"请解析以下简历内容：\n{resume_content}")
         ]
         
+        # Langfuse 追踪
+        invoke_kwargs = build_langfuse_invoke_kwargs(
+            trace_name=self.name,
+            session_id=session_id,
+            tags=["resume-analysis"],
+        )
+        
         for attempt in range(MAX_RETRY + 1):
             try:
-                response = await self.llm.ainvoke(messages)
+                response = await self.llm.ainvoke(messages, **invoke_kwargs)
                 cleaned = self._clean_json_response(response.content)
                 result = json.loads(cleaned)
                 validate(instance=result, schema=RESUME_ANALYZER_SCHEMA)
