@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from agents.planner_agent import PlannerAgent
 from tools.pdf_parser import parse_pdf
 from tools.llm_client import get_llm_client, stream_llm_response
-from tools.db_memory import get_sql_memory_store as get_memory_store, list_sql_sessions as list_sessions, list_sql_sessions_rich
+from tools.db_memory import get_sql_memory_store as get_memory_store, list_sql_sessions as list_sessions
 from config.prompts import CHAT_ASSISTANT_PROMPT
 from config.config import RESUMES_DIR
 
@@ -70,10 +70,18 @@ async def create_session():
 
 @app.get("/api/session/list")
 async def list_all_sessions():
-    """列出所有会话（含标题、时间、消息数等丰富信息）"""
-    session_list = list_sql_sessions_rich()
-    # 过滤掉内部占位会话
-    session_list = [s for s in session_list if not s["session_id"].startswith("__")]
+    """列出所有会话"""
+    sessions = list_sessions()
+    session_list = []
+    for sid in sessions:
+        memory = get_memory_store(sid)
+        has_results = bool(memory.get_all_analysis_results())
+        chat_count = len(memory.get_chat_history())
+        session_list.append({
+            "session_id": sid,
+            "has_analysis": has_results,
+            "chat_count": chat_count
+        })
     return {"sessions": session_list}
 
 
@@ -93,25 +101,6 @@ async def delete_session(session_id: str):
     memory = get_memory_store(session_id)
     memory.clear()
     return {"message": "会话已删除"}
-
-
-@app.put("/api/session/{session_id}/rename")
-async def rename_session(session_id: str, data: dict):
-    """重命名会话"""
-    title = data.get("title", "").strip()
-    if not title:
-        raise HTTPException(status_code=400, detail="标题不能为空")
-    memory = get_memory_store(session_id)
-    memory.rename_session(title)
-    return {"message": "重命名成功", "title": title}
-
-
-@app.post("/api/session/{session_id}/clear-chat")
-async def clear_chat(session_id: str):
-    """清空聊天记录（保留分析结果）"""
-    memory = get_memory_store(session_id)
-    memory.clear_chat_only()
-    return {"message": "聊天记录已清空"}
 
 
 # ==================== 核心分析接口（SSE流式输出） ====================
@@ -158,19 +147,6 @@ async def analyze_stream(
             async for chunk in planner.run_stream(jd_text, resume_content, memory):
                 # SSE格式: data: xxx\n\n
                 yield f"data: {json.dumps({'type': 'content', 'data': chunk}, ensure_ascii=False)}\n\n"
-            
-            # 分析完成后自动生成会话标题
-            try:
-                jd_data = memory.get_analysis_result("jd_result")
-                if jd_data:
-                    job_title = jd_data.get("job_parser_result", {}).get("job_title", "")
-                    company = jd_data.get("job_parser_result", {}).get("company", "")
-                    auto_title = f"{job_title}" + (f" · {company}" if company else "")
-                    if auto_title.strip():
-                        memory.rename_session(auto_title.strip())
-                memory.touch_updated()
-            except Exception:
-                pass
             
             # 发送完成信号
             yield f"data: {json.dumps({'type': 'done', 'data': ''}, ensure_ascii=False)}\n\n"
@@ -251,9 +227,8 @@ async def chat_stream(request: ChatRequest):
     """
     memory = get_memory_store(request.session_id)
     
-    # 保存用户消息 + 更新会话时间
+    # 保存用户消息
     memory.add_chat_message("user", request.message)
-    memory.touch_updated()
     
     # 构建上下文
     analysis_results = memory.get_all_analysis_results()

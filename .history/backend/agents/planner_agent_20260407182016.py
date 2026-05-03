@@ -8,7 +8,7 @@ from agents.resume_analyzer_agent import ResumeAnalyzerAgent
 from agents.matcher_agent import MatcherAgent
 from agents.resume_writer_agent import ResumeWriterAgent
 from agents.interview_qa_agent import InterviewQAAgent
-from tools.db_memory import GlobalSQLMemory
+from tools.rag_tool import SimpleMemoryStore
 
 
 class AgentState(TypedDict, total=False):
@@ -175,7 +175,7 @@ class PlannerAgent:
         return result.get("final_report", {"error": "流程执行异常"})
     
     async def run_stream(self, jd_text: str, resume_content: str,
-                         memory: Optional[GlobalSQLMemory] = None) -> AsyncIterator[str]:
+                         memory: Optional[SimpleMemoryStore] = None) -> AsyncIterator[str]:
         """
         流式运行分析流程，逐步输出每个Agent的结果
         :param jd_text: JD文本
@@ -224,12 +224,6 @@ class PlannerAgent:
             matcher_result = await self.matcher.match(jd_result, resume_result)
             if memory:
                 memory.save_analysis_result("matcher_result", matcher_result)
-                # === 长期记忆：自动提取弱项/优势写入用户画像 ===
-                mr = matcher_result.get("matcher_result", {})
-                for weakness in mr.get("shortcomings", []):
-                    memory.update_user_weakness(weakness)
-                for strength in mr.get("advantages", []):
-                    memory.update_user_strength(strength)
         except Exception as e:
             yield f"❌ 匹配分析失败: {str(e)}\n\n"
             return

@@ -1,5 +1,4 @@
-# -*- coding: utf-8 -*-
-"""面试问答Agent - 生成针对性面试题库"""
+﻿"""闈㈣瘯闂瓟Agent - 鐢熸垚閽堝鎬ч潰璇曢搴?""
 import json
 from typing import AsyncIterator
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -8,7 +7,7 @@ from tools.llm_client import get_llm_client
 from config.prompts import INTERVIEW_QA_PROMPT
 from config.config import MAX_RETRY
 
-# 面试题库JSON Schema
+# 闈㈣瘯棰樺簱JSON Schema
 INTERVIEW_QA_SCHEMA = {
     "type": "object",
     "properties": {
@@ -57,12 +56,12 @@ INTERVIEW_QA_SCHEMA = {
 
 
 class InterviewQAAgent:
-    """面试问答Agent"""
-
+    """闈㈣瘯闂瓟Agent"""
+    
     def __init__(self):
         self.llm = get_llm_client(streaming=False)
         self.name = "InterviewQAAgent"
-
+    
     def _clean_json_response(self, text: str) -> str:
         text = text.strip()
         if text.startswith("```json"):
@@ -72,37 +71,32 @@ class InterviewQAAgent:
         if text.endswith("```"):
             text = text[:-3]
         return text.strip()
-
+    
     async def generate_qa(self, jd_result: dict, resume_result: dict, user_profile: dict = None) -> dict:
         """
-        生成面试题库
-        :param jd_result: JD解析结果
-        :param resume_result: 简历解析结果
-        :param user_profile: 用户长期画像(包含历史弱项等)
-        :return: 面试题库
+        鐢熸垚闈㈣瘯棰樺簱
+        :param jd_result: JD瑙ｆ瀽缁撴灉
+        :param resume_result: 绠€鍘嗚В鏋愮粨鏋?
+        :return: 闈㈣瘯棰樺簱
         """
-        prompt_addition = ""
+        prompt_add = ""
         if user_profile and user_profile.get("weaknesses"):
             weak_str = ", ".join(user_profile["weaknesses"])
-            prompt_addition = (
-                f"\n\n【注意：历史弱项记录】\n"
-                f"该求职者在先前的面试辅导中，存在以下薄弱环节：{weak_str}。"
-                f"请在此次生成的面试题中，务必包含针对这些弱项的【追问题】或【技术题】，"
-                f"以帮助求职者克服短板！"
-            )
+            prompt_add = f"\n\n【注意：历史弱项】\n求职者在先前的面试中有以下薄弱环节：{weak_str}。请在此次出的面试题中，务必包含针对这些弱项的【追问题】或【技术题】，以帮助求职者克服短板！"
 
-        input_text = (
-            f"请根据以上JD要求和简历信息，生成针对性面试题库：\n\n"
-            f"【JD要求】\n{json.dumps(jd_result, ensure_ascii=False, indent=2)}\n\n"
-            f"【简历信息】\n{json.dumps(resume_result, ensure_ascii=False, indent=2)}"
-            f"{prompt_addition}"
-        )
+        input_text = f"""璇锋牴鎹互涓婮D瑕佹眰鍜岀畝鍘嗕俊鎭紝鐢熸垚閽堝鎬ч潰璇曢搴擄細
 
+銆怞D瑕佹眰銆?
+{json.dumps(jd_result, ensure_ascii=False, indent=2)}
+
+銆愮畝鍘嗕俊鎭€?
+{json.dumps(resume_result, ensure_ascii=False, indent=2)}{prompt_add}"""
+        
         messages = [
             SystemMessage(content=INTERVIEW_QA_PROMPT),
             HumanMessage(content=input_text)
         ]
-
+        
         for attempt in range(MAX_RETRY + 1):
             try:
                 response = await self.llm.ainvoke(messages)
@@ -113,32 +107,33 @@ class InterviewQAAgent:
             except (json.JSONDecodeError, ValidationError) as e:
                 if attempt < MAX_RETRY:
                     messages.append(HumanMessage(
-                        content=f"JSON格式错误，请严格按照模板输出。错误：{str(e)}"
+                        content=f"JSON鏍煎紡閿欒锛岃涓ユ牸鎸夌収妯℃澘杈撳嚭銆傞敊璇細{str(e)}"
                     ))
                 else:
-                    raise Exception(f"面试题生成失败：{str(e)}")
-
-    async def generate_qa_stream(self, jd_result: dict, resume_result: dict, user_profile: dict = None) -> AsyncIterator[str]:
-        """流式生成面试题"""
-        yield f"\U0001f3af **{self.name}** 正在生成面试题库...\n\n"
+                    raise Exception(f"闈㈣瘯棰樼敓鎴愬け璐ワ細{str(e)}")
+    
+    async def generate_qa_stream(self, jd_result: dict, resume_result: dict) -> AsyncIterator[str]:
+        """娴佸紡鐢熸垚闈㈣瘯棰?""
+        yield f"馃幆 **{self.name}** 姝ｅ湪鐢熸垚闈㈣瘯棰樺簱...\n\n"
         try:
-            result = await self.generate_qa(jd_result, resume_result, user_profile)
+            result = await self.generate_qa(jd_result, resume_result)
             qa = result['interview_qa_result']
-            yield "\u2705 面试题库生成完成！\n\n"
-
-            yield "### \U0001f4da 技术面试题\n\n"
+            yield f"鉁?闈㈣瘯棰樺簱鐢熸垚瀹屾垚锛乗n\n"
+            
+            yield "### 馃摎 鎶€鏈潰璇曢\n\n"
             for i, item in enumerate(qa['technical_qa'], 1):
                 yield f"**Q{i}: {item['question']}**\n\n"
-                yield f"参考答案: {item['answer']}\n\n---\n\n"
-
-            yield "### \U0001f4cb 项目深挖题\n\n"
+                yield f"鍙傝€冪瓟妗? {item['answer']}\n\n---\n\n"
+            
+            yield "### 馃捈 椤圭洰娣辨寲棰榎n\n"
             for i, item in enumerate(qa['project_qa'], 1):
                 yield f"**Q{i}: {item['question']}**\n\n"
-                yield f"参考答案: {item['answer']}\n\n---\n\n"
-
-            yield "### \U0001f9d0 行为面试题\n\n"
+                yield f"鍙傝€冪瓟妗? {item['answer']}\n\n---\n\n"
+            
+            yield "### 馃 琛屼负闈㈣瘯棰榎n\n"
             for i, item in enumerate(qa['behavior_qa'], 1):
                 yield f"**Q{i}: {item['question']}**\n\n"
-                yield f"参考答案: {item['answer']}\n\n---\n\n"
+                yield f"鍙傝€冪瓟妗? {item['answer']}\n\n---\n\n"
         except Exception as e:
-            yield f"\u274c 面试题生成失败: {str(e)}\n\n"
+            yield f"鉂?闈㈣瘯棰樼敓鎴愬け璐? {str(e)}\n\n"
+

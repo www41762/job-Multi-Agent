@@ -33,16 +33,6 @@ const api = {
     return res.data
   },
 
-  async renameSession(sessionId, title) {
-    const res = await http.put(`/session/${sessionId}/rename`, { title })
-    return res.data
-  },
-
-  async clearChat(sessionId) {
-    const res = await http.post(`/session/${sessionId}/clear-chat`)
-    return res.data
-  },
-
   // ==================== SSE流式请求封装 ====================
   
   /**

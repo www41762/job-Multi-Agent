@@ -159,19 +159,6 @@ async def analyze_stream(
                 # SSE格式: data: xxx\n\n
                 yield f"data: {json.dumps({'type': 'content', 'data': chunk}, ensure_ascii=False)}\n\n"
             
-            # 分析完成后自动生成会话标题
-            try:
-                jd_data = memory.get_analysis_result("jd_result")
-                if jd_data:
-                    job_title = jd_data.get("job_parser_result", {}).get("job_title", "")
-                    company = jd_data.get("job_parser_result", {}).get("company", "")
-                    auto_title = f"{job_title}" + (f" · {company}" if company else "")
-                    if auto_title.strip():
-                        memory.rename_session(auto_title.strip())
-                memory.touch_updated()
-            except Exception:
-                pass
-            
             # 发送完成信号
             yield f"data: {json.dumps({'type': 'done', 'data': ''}, ensure_ascii=False)}\n\n"
         except Exception as e:
@@ -251,9 +238,8 @@ async def chat_stream(request: ChatRequest):
     """
     memory = get_memory_store(request.session_id)
     
-    # 保存用户消息 + 更新会话时间
+    # 保存用户消息
     memory.add_chat_message("user", request.message)
-    memory.touch_updated()
     
     # 构建上下文
     analysis_results = memory.get_all_analysis_results()

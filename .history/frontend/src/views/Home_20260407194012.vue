@@ -23,53 +23,20 @@
           :key="s.session_id"
           :class="['session-card', { active: s.session_id === store.sessionId }]"
           @click="store.switchSession(s.session_id)"
-          @contextmenu.prevent="openCtxMenu($event, s)"
         >
-          <div class="session-card-icon">{{ s.has_analysis ? '✅' : '💬' }}</div>
+          <div class="session-card-icon">💬</div>
           <div class="session-card-body">
-            <!-- 重命名编辑模式 -->
-            <input
-              v-if="renamingId === s.session_id"
-              v-model="renameInput"
-              class="rename-input"
-              @keydown.enter.prevent="confirmRename(s.session_id)"
-              @keydown.escape="cancelRename"
-              @blur="confirmRename(s.session_id)"
-              @click.stop
-              ref="renameInputRef"
-            />
-            <template v-else>
-              <span class="session-card-title">{{ s.title || '会话 ' + s.session_id }}</span>
-              <span class="session-card-meta">
-                {{ s.chat_count }} 条消息
-                <em v-if="s.has_analysis" class="tag-done">✓ 已分析</em>
-              </span>
-              <span class="session-card-time" v-if="s.updated_at">{{ formatTime(s.updated_at) }}</span>
-            </template>
+            <span class="session-card-title">会话 {{ s.session_id }}</span>
+            <span class="session-card-meta">
+              {{ s.chat_count }} 条消息
+              <em v-if="s.has_analysis" class="tag-done">✓ 已分析</em>
+            </span>
           </div>
-          <!-- 更多操作按钮 -->
-          <button class="session-more-btn" @click.stop="openCtxMenu($event, s)" title="更多操作">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
-          </button>
         </div>
         <div v-if="store.sessions.length === 0" class="session-empty">
           暂无历史会话
         </div>
       </div>
-
-      <!-- 右键菜单 -->
-      <Teleport to="body">
-        <div
-          v-if="ctxMenu.visible"
-          class="ctx-menu"
-          :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }"
-          @click.stop
-        >
-          <div class="ctx-item" @click="startRename">✏️ 重命名</div>
-          <div class="ctx-item" @click="handleClearChat">🗑️ 清空聊天</div>
-          <div class="ctx-item danger" @click="handleDeleteSession">❌ 删除会话</div>
-        </div>
-      </Teleport>
 
       <!-- 用户长期画像 -->
       <div class="profile-panel" v-if="userProfile.weaknesses.length || userProfile.strong_skills.length">
@@ -398,83 +365,6 @@ function renderMd(text) {
   return renderMarkdown(text)
 }
 
-// ==================== 会话管理 ====================
-const renamingId = ref('')
-const renameInput = ref('')
-const renameInputRef = ref(null)
-
-const ctxMenu = ref({ visible: false, x: 0, y: 0, session: null })
-
-function openCtxMenu(e, session) {
-  ctxMenu.value = { visible: true, x: e.clientX, y: e.clientY, session }
-}
-function closeCtxMenu() {
-  ctxMenu.value.visible = false
-}
-
-function startRename() {
-  const s = ctxMenu.value.session
-  if (!s) return
-  renamingId.value = s.session_id
-  renameInput.value = s.title || ''
-  closeCtxMenu()
-  nextTick(() => {
-    if (renameInputRef.value) {
-      const el = Array.isArray(renameInputRef.value) ? renameInputRef.value[0] : renameInputRef.value
-      el?.focus()
-    }
-  })
-}
-async function confirmRename(sid) {
-  if (renameInput.value.trim()) {
-    await store.renameSession(sid, renameInput.value.trim())
-  }
-  renamingId.value = ''
-}
-function cancelRename() {
-  renamingId.value = ''
-}
-
-async function handleDeleteSession() {
-  const s = ctxMenu.value.session
-  closeCtxMenu()
-  if (!s) return
-  await store.deleteSession(s.session_id)
-  if (!store.sessionId) {
-    await store.createSession()
-  }
-  ElMessage.success('会话已删除')
-}
-
-async function handleClearChat() {
-  const s = ctxMenu.value.session
-  closeCtxMenu()
-  if (!s) return
-  await store.clearChat(s.session_id)
-  ElMessage.success('聊天记录已清空')
-}
-
-function formatTime(dateStr) {
-  if (!dateStr) return ''
-  try {
-    const d = new Date(dateStr)
-    const now = new Date()
-    const diff = now - d
-    if (diff < 60000) return '刚刚'
-    if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前'
-    if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前'
-    if (diff < 604800000) return Math.floor(diff / 86400000) + '天前'
-    return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
-  } catch {
-    return ''
-  }
-}
-
-// 点击其它地方关闭右键菜单
-if (typeof document !== 'undefined') {
-  document.addEventListener('click', closeCtxMenu)
-}
-
 function scrollToBottom() {
   nextTick(() => {
     if (messagesRef.value) {
@@ -781,70 +671,6 @@ $radius-lg: 16px;
     }
   }
 }
-/* 会话卡片增强 */
-.session-card {
-  position: relative;
-  .session-more-btn {
-    position: absolute;
-    right: 8px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 24px;
-    height: 24px;
-    border: none;
-    background: transparent;
-    color: rgba(255,255,255,.3);
-    border-radius: 4px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    opacity: 0;
-    transition: all .15s;
-    &:hover { color: #fff; background: rgba(255,255,255,.1); }
-  }
-  &:hover .session-more-btn { opacity: 1; }
-}
-.session-card-time {
-  font-size: 10px;
-  color: rgba(255,255,255,.25);
-  display: block;
-  margin-top: 1px;
-}
-.rename-input {
-  width: 100%;
-  padding: 4px 8px;
-  border: 1px solid $primary-light;
-  border-radius: 5px;
-  background: rgba(255,255,255,.08);
-  color: #e2e8f0;
-  font-size: 13px;
-  outline: none;
-  font-family: inherit;
-}
-
-/* 右键菜单 */
-.ctx-menu {
-  position: fixed;
-  z-index: 9999;
-  background: #1e293b;
-  border: 1px solid rgba(255,255,255,.1);
-  border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0,0,0,.4);
-  padding: 6px 0;
-  min-width: 160px;
-  .ctx-item {
-    padding: 8px 16px;
-    font-size: 13px;
-    color: #e2e8f0;
-    cursor: pointer;
-    transition: background .12s;
-    &:hover { background: rgba(255,255,255,.08); }
-    &.danger { color: #f87171; }
-    &.danger:hover { background: rgba(248,113,113,.1); }
-  }
-}
-
 .session-empty {
   text-align: center;
   color: $text-muted;

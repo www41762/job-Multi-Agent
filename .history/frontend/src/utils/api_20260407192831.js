@@ -33,16 +33,6 @@ const api = {
     return res.data
   },
 
-  async renameSession(sessionId, title) {
-    const res = await http.put(`/session/${sessionId}/rename`, { title })
-    return res.data
-  },
-
-  async clearChat(sessionId) {
-    const res = await http.post(`/session/${sessionId}/clear-chat`)
-    return res.data
-  },
-
   // ==================== SSE流式请求封装 ====================
   
   /**
@@ -176,13 +166,6 @@ const api = {
 
   async healthCheck() {
     const res = await http.get('/health')
-    return res.data
-  },
-
-  // ==================== 岗位搜索 ====================
-
-  async searchJobs({ keyword, city = '', salary_min = 0, salary_max = 0, experience = '' }) {
-    const res = await http.post('/job/search', { keyword, city, salary_min, salary_max, experience })
     return res.data
   },
 

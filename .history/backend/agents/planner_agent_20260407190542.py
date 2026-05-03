@@ -224,12 +224,6 @@ class PlannerAgent:
             matcher_result = await self.matcher.match(jd_result, resume_result)
             if memory:
                 memory.save_analysis_result("matcher_result", matcher_result)
-                # === 长期记忆：自动提取弱项/优势写入用户画像 ===
-                mr = matcher_result.get("matcher_result", {})
-                for weakness in mr.get("shortcomings", []):
-                    memory.update_user_weakness(weakness)
-                for strength in mr.get("advantages", []):
-                    memory.update_user_strength(strength)
         except Exception as e:
             yield f"❌ 匹配分析失败: {str(e)}\n\n"
             return

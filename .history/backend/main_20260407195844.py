@@ -251,9 +251,8 @@ async def chat_stream(request: ChatRequest):
     """
     memory = get_memory_store(request.session_id)
     
-    # 保存用户消息 + 更新会话时间
+    # 保存用户消息
     memory.add_chat_message("user", request.message)
-    memory.touch_updated()
     
     # 构建上下文
     analysis_results = memory.get_all_analysis_results()

@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from agents.planner_agent import PlannerAgent
 from tools.pdf_parser import parse_pdf
 from tools.llm_client import get_llm_client, stream_llm_response
-from tools.db_memory import get_sql_memory_store as get_memory_store, list_sql_sessions as list_sessions, list_sql_sessions_rich
+from tools.db_memory import get_sql_memory_store as get_memory_store, list_sql_sessions as list_sessions
 from config.prompts import CHAT_ASSISTANT_PROMPT
 from config.config import RESUMES_DIR
 
@@ -49,15 +49,6 @@ class SessionRequest(BaseModel):
     session_id: Optional[str] = None
 
 
-class JobSearchRequest(BaseModel):
-    """岗位搜索请求"""
-    keyword: str
-    city: str = ""
-    salary_min: int = 0
-    salary_max: int = 0
-    experience: str = ""
-
-
 # ==================== 会话管理接口 ====================
 
 @app.post("/api/session/create")
@@ -70,10 +61,18 @@ async def create_session():
 
 @app.get("/api/session/list")
 async def list_all_sessions():
-    """列出所有会话（含标题、时间、消息数等丰富信息）"""
-    session_list = list_sql_sessions_rich()
-    # 过滤掉内部占位会话
-    session_list = [s for s in session_list if not s["session_id"].startswith("__")]
+    """列出所有会话"""
+    sessions = list_sessions()
+    session_list = []
+    for sid in sessions:
+        memory = get_memory_store(sid)
+        has_results = bool(memory.get_all_analysis_results())
+        chat_count = len(memory.get_chat_history())
+        session_list.append({
+            "session_id": sid,
+            "has_analysis": has_results,
+            "chat_count": chat_count
+        })
     return {"sessions": session_list}
 
 
@@ -93,25 +92,6 @@ async def delete_session(session_id: str):
     memory = get_memory_store(session_id)
     memory.clear()
     return {"message": "会话已删除"}
-
-
-@app.put("/api/session/{session_id}/rename")
-async def rename_session(session_id: str, data: dict):
-    """重命名会话"""
-    title = data.get("title", "").strip()
-    if not title:
-        raise HTTPException(status_code=400, detail="标题不能为空")
-    memory = get_memory_store(session_id)
-    memory.rename_session(title)
-    return {"message": "重命名成功", "title": title}
-
-
-@app.post("/api/session/{session_id}/clear-chat")
-async def clear_chat(session_id: str):
-    """清空聊天记录（保留分析结果）"""
-    memory = get_memory_store(session_id)
-    memory.clear_chat_only()
-    return {"message": "聊天记录已清空"}
 
 
 # ==================== 核心分析接口（SSE流式输出） ====================
@@ -158,19 +138,6 @@ async def analyze_stream(
             async for chunk in planner.run_stream(jd_text, resume_content, memory):
                 # SSE格式: data: xxx\n\n
                 yield f"data: {json.dumps({'type': 'content', 'data': chunk}, ensure_ascii=False)}\n\n"
-            
-            # 分析完成后自动生成会话标题
-            try:
-                jd_data = memory.get_analysis_result("jd_result")
-                if jd_data:
-                    job_title = jd_data.get("job_parser_result", {}).get("job_title", "")
-                    company = jd_data.get("job_parser_result", {}).get("company", "")
-                    auto_title = f"{job_title}" + (f" · {company}" if company else "")
-                    if auto_title.strip():
-                        memory.rename_session(auto_title.strip())
-                memory.touch_updated()
-            except Exception:
-                pass
             
             # 发送完成信号
             yield f"data: {json.dumps({'type': 'done', 'data': ''}, ensure_ascii=False)}\n\n"
@@ -251,9 +218,8 @@ async def chat_stream(request: ChatRequest):
     """
     memory = get_memory_store(request.session_id)
     
-    # 保存用户消息 + 更新会话时间
+    # 保存用户消息
     memory.add_chat_message("user", request.message)
-    memory.touch_updated()
     
     # 构建上下文
     analysis_results = memory.get_all_analysis_results()
@@ -270,16 +236,6 @@ async def chat_stream(request: ChatRequest):
     if analysis_results.get("interview_qa"):
         context_parts.append(f"【面试题库】\n{json.dumps(analysis_results['interview_qa'], ensure_ascii=False, indent=2)}")
     
-    # 注入长期用户画像（跨会话持久化）
-    user_profile = memory.get_user_profile("default_user")
-    if user_profile.get("weaknesses") or user_profile.get("strong_skills"):
-        profile_parts = []
-        if user_profile["weaknesses"]:
-            profile_parts.append(f"历史弱项：{', '.join(user_profile['weaknesses'])}")
-        if user_profile["strong_skills"]:
-            profile_parts.append(f"核心优势：{', '.join(user_profile['strong_skills'])}")
-        context_parts.append(f"【用户长期画像（跨会话记忆）】\n{'; '.join(profile_parts)}")
-
     context = "\n\n".join(context_parts) if context_parts else "暂无分析结果，用户还没有进行求职分析。"
     
     # 构建消息列表
@@ -334,59 +290,6 @@ async def get_results(session_id: str):
         "session_id": session_id,
         "results": memory.get_all_analysis_results()
     }
-
-
-# ==================== 用户画像接口（长期记忆） ====================
-
-@app.get("/api/profile")
-async def get_user_profile():
-    """获取用户长期画像（弱项 + 优势技能，跨会话持久化）"""
-    memory = get_memory_store("__profile__")
-    profile = memory.get_user_profile("default_user")
-    return profile
-
-
-@app.post("/api/profile/weakness")
-async def add_weakness(data: dict):
-    """手动添加弱项"""
-    memory = get_memory_store("__profile__")
-    weakness = data.get("weakness", "").strip()
-    if weakness:
-        memory.update_user_weakness(weakness)
-    return {"message": "弱项已记录", "profile": memory.get_user_profile("default_user")}
-
-
-@app.post("/api/profile/strength")
-async def add_strength(data: dict):
-    """手动添加优势技能"""
-    memory = get_memory_store("__profile__")
-    skill = data.get("skill", "").strip()
-    if skill:
-        memory.update_user_strength(skill)
-    return {"message": "技能已记录", "profile": memory.get_user_profile("default_user")}
-
-
-# ==================== 岗位搜索接口 ====================
-
-@app.post("/api/job/search")
-async def search_jobs(request: JobSearchRequest):
-    """
-    搜索岗位 - 基于大模型智能生成匹配岗位
-    未来可无缝替换为 Boss直聘/猎聘/拉勾等真实 API
-    """
-    from tools.job_search import get_job_search_tool
-    tool = get_job_search_tool()
-    try:
-        results = await tool.search(
-            keyword=request.keyword,
-            city=request.city,
-            salary_min=request.salary_min,
-            salary_max=request.salary_max,
-            experience=request.experience,
-        )
-        return {"jobs": results, "total": len(results)}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"搜索失败: {str(e)}")
 
 
 # ==================== 健康检查 ====================

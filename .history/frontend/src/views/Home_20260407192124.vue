@@ -23,53 +23,20 @@
           :key="s.session_id"
           :class="['session-card', { active: s.session_id === store.sessionId }]"
           @click="store.switchSession(s.session_id)"
-          @contextmenu.prevent="openCtxMenu($event, s)"
         >
-          <div class="session-card-icon">{{ s.has_analysis ? '✅' : '💬' }}</div>
+          <div class="session-card-icon">💬</div>
           <div class="session-card-body">
-            <!-- 重命名编辑模式 -->
-            <input
-              v-if="renamingId === s.session_id"
-              v-model="renameInput"
-              class="rename-input"
-              @keydown.enter.prevent="confirmRename(s.session_id)"
-              @keydown.escape="cancelRename"
-              @blur="confirmRename(s.session_id)"
-              @click.stop
-              ref="renameInputRef"
-            />
-            <template v-else>
-              <span class="session-card-title">{{ s.title || '会话 ' + s.session_id }}</span>
-              <span class="session-card-meta">
-                {{ s.chat_count }} 条消息
-                <em v-if="s.has_analysis" class="tag-done">✓ 已分析</em>
-              </span>
-              <span class="session-card-time" v-if="s.updated_at">{{ formatTime(s.updated_at) }}</span>
-            </template>
+            <span class="session-card-title">会话 {{ s.session_id }}</span>
+            <span class="session-card-meta">
+              {{ s.chat_count }} 条消息
+              <em v-if="s.has_analysis" class="tag-done">✓ 已分析</em>
+            </span>
           </div>
-          <!-- 更多操作按钮 -->
-          <button class="session-more-btn" @click.stop="openCtxMenu($event, s)" title="更多操作">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
-          </button>
         </div>
         <div v-if="store.sessions.length === 0" class="session-empty">
           暂无历史会话
         </div>
       </div>
-
-      <!-- 右键菜单 -->
-      <Teleport to="body">
-        <div
-          v-if="ctxMenu.visible"
-          class="ctx-menu"
-          :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }"
-          @click.stop
-        >
-          <div class="ctx-item" @click="startRename">✏️ 重命名</div>
-          <div class="ctx-item" @click="handleClearChat">🗑️ 清空聊天</div>
-          <div class="ctx-item danger" @click="handleDeleteSession">❌ 删除会话</div>
-        </div>
-      </Teleport>
 
       <!-- 用户长期画像 -->
       <div class="profile-panel" v-if="userProfile.weaknesses.length || userProfile.strong_skills.length">
@@ -99,14 +66,7 @@
       <!-- 顶部 Toolbar -->
       <header class="toolbar">
         <div class="toolbar-left">
-          <div class="toolbar-tabs">
-            <button :class="['tab-btn', { active: activeTab === 'analyze' }]" @click="activeTab = 'analyze'">
-              🎯 求职分析
-            </button>
-            <button :class="['tab-btn', { active: activeTab === 'search' }]" @click="activeTab = 'search'">
-              🔍 搜索岗位
-            </button>
-          </div>
+          <span class="toolbar-title">🎯 智能求职分析</span>
           <span class="toolbar-session" v-if="store.sessionId">ID: {{ store.sessionId }}</span>
         </div>
         <div class="toolbar-right">
@@ -117,93 +77,9 @@
         </div>
       </header>
 
-      <!-- ==================== 岗位搜索面板 ==================== -->
+      <!-- 输入面板（可折叠） -->
       <transition name="slide">
-        <section class="search-panel" v-show="showInputPanel && activeTab === 'search'">
-          <div class="search-bar">
-            <div class="search-input-group">
-              <input
-                v-model="searchKeyword"
-                type="text"
-                class="search-main-input"
-                placeholder="输入岗位关键词，如：大模型应用开发、Python后端、AI Agent..."
-                @keydown.enter.prevent="handleSearchJobs"
-              />
-              <select v-model="searchCity" class="search-select">
-                <option value="">全国</option>
-                <option value="北京">北京</option>
-                <option value="上海">上海</option>
-                <option value="深圳">深圳</option>
-                <option value="杭州">杭州</option>
-                <option value="广州">广州</option>
-                <option value="成都">成都</option>
-                <option value="南京">南京</option>
-                <option value="武汉">武汉</option>
-              </select>
-              <select v-model="searchExperience" class="search-select">
-                <option value="">经验不限</option>
-                <option value="应届">应届</option>
-                <option value="1-3年">1-3年</option>
-                <option value="3-5年">3-5年</option>
-                <option value="5-10年">5-10年</option>
-              </select>
-              <button class="btn-search" @click="handleSearchJobs" :disabled="!searchKeyword.trim() || isSearching">
-                <span class="spinner" v-if="isSearching"></span>
-                <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                {{ isSearching ? '搜索中...' : '搜索' }}
-              </button>
-            </div>
-          </div>
-
-          <!-- 搜索结果 -->
-          <div class="search-results" v-if="searchResults.length > 0">
-            <div class="search-result-header">
-              <span>找到 <strong>{{ searchResults.length }}</strong> 个岗位</span>
-            </div>
-            <div class="job-card-list">
-              <div class="job-card" v-for="(job, idx) in searchResults" :key="idx">
-                <div class="job-card-top">
-                  <div class="job-card-info">
-                    <h4 class="job-title">{{ job.title }}</h4>
-                    <span class="job-company">{{ job.company }}</span>
-                  </div>
-                  <span class="job-salary">{{ job.salary }}</span>
-                </div>
-                <div class="job-card-meta">
-                  <span class="meta-tag">📍 {{ job.city }}</span>
-                  <span class="meta-tag">💼 {{ job.experience }}</span>
-                  <span class="meta-tag">🎓 {{ job.education }}</span>
-                </div>
-                <div class="job-tags">
-                  <span class="job-tag" v-for="tag in (job.tags || []).slice(0, 4)" :key="tag">{{ tag }}</span>
-                </div>
-                <div class="job-card-actions">
-                  <button class="btn-use-jd" @click="useJobJD(job)">
-                    📋 使用此JD进行分析
-                  </button>
-                  <button class="btn-view-jd" @click="toggleJobDetail(idx)">
-                    {{ expandedJob === idx ? '收起详情' : '查看JD详情' }}
-                  </button>
-                </div>
-                <transition name="slide">
-                  <div class="job-jd-detail" v-show="expandedJob === idx">
-                    <pre class="jd-text">{{ job.jd_text }}</pre>
-                  </div>
-                </transition>
-              </div>
-            </div>
-          </div>
-
-          <!-- 空状态 -->
-          <div class="search-empty" v-else-if="!isSearching && hasSearched">
-            <span>😥 未找到匹配岗位，试试换个关键词</span>
-          </div>
-        </section>
-      </transition>
-
-      <!-- ==================== 分析输入面板（可折叠） ==================== -->
-      <transition name="slide">
-        <section class="input-panel" v-show="showInputPanel && activeTab === 'analyze'">
+        <section class="input-panel" v-show="showInputPanel">
           <div class="input-panel-grid">
             <!-- JD 输入卡片 -->
             <div class="input-card">
@@ -358,9 +234,6 @@ const chatAreaRef = ref(null)
 const messagesRef = ref(null)
 const fileInputRef = ref(null)
 
-// Tab 切换
-const activeTab = ref('analyze')
-
 // 表单数据
 const jdText = ref('')
 const resumeFile = ref(null)
@@ -368,15 +241,6 @@ const resumeFileName = ref('')
 const resumeText = ref('')
 const chatInput = ref('')
 const showInputPanel = ref(true)
-
-// 岗位搜索
-const searchKeyword = ref('')
-const searchCity = ref('')
-const searchExperience = ref('')
-const searchResults = ref([])
-const isSearching = ref(false)
-const hasSearched = ref(false)
-const expandedJob = ref(-1)
 
 // 流式输出
 const streamContent = ref('')
@@ -398,83 +262,6 @@ function renderMd(text) {
   return renderMarkdown(text)
 }
 
-// ==================== 会话管理 ====================
-const renamingId = ref('')
-const renameInput = ref('')
-const renameInputRef = ref(null)
-
-const ctxMenu = ref({ visible: false, x: 0, y: 0, session: null })
-
-function openCtxMenu(e, session) {
-  ctxMenu.value = { visible: true, x: e.clientX, y: e.clientY, session }
-}
-function closeCtxMenu() {
-  ctxMenu.value.visible = false
-}
-
-function startRename() {
-  const s = ctxMenu.value.session
-  if (!s) return
-  renamingId.value = s.session_id
-  renameInput.value = s.title || ''
-  closeCtxMenu()
-  nextTick(() => {
-    if (renameInputRef.value) {
-      const el = Array.isArray(renameInputRef.value) ? renameInputRef.value[0] : renameInputRef.value
-      el?.focus()
-    }
-  })
-}
-async function confirmRename(sid) {
-  if (renameInput.value.trim()) {
-    await store.renameSession(sid, renameInput.value.trim())
-  }
-  renamingId.value = ''
-}
-function cancelRename() {
-  renamingId.value = ''
-}
-
-async function handleDeleteSession() {
-  const s = ctxMenu.value.session
-  closeCtxMenu()
-  if (!s) return
-  await store.deleteSession(s.session_id)
-  if (!store.sessionId) {
-    await store.createSession()
-  }
-  ElMessage.success('会话已删除')
-}
-
-async function handleClearChat() {
-  const s = ctxMenu.value.session
-  closeCtxMenu()
-  if (!s) return
-  await store.clearChat(s.session_id)
-  ElMessage.success('聊天记录已清空')
-}
-
-function formatTime(dateStr) {
-  if (!dateStr) return ''
-  try {
-    const d = new Date(dateStr)
-    const now = new Date()
-    const diff = now - d
-    if (diff < 60000) return '刚刚'
-    if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前'
-    if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前'
-    if (diff < 604800000) return Math.floor(diff / 86400000) + '天前'
-    return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
-  } catch {
-    return ''
-  }
-}
-
-// 点击其它地方关闭右键菜单
-if (typeof document !== 'undefined') {
-  document.addEventListener('click', closeCtxMenu)
-}
-
 function scrollToBottom() {
   nextTick(() => {
     if (messagesRef.value) {
@@ -493,7 +280,6 @@ onMounted(async () => {
   }
   await store.loadHistory()
   await store.loadSessions()
-  await loadUserProfile()
 })
 
 // ==================== 会话 ====================
@@ -559,7 +345,6 @@ async function handleAnalyze() {
       store.isAnalyzing = false
       ElMessage.success('分析完成！')
       store.loadSessions()
-      loadUserProfile()  // 刷新长期画像（匹配后自动提取了弱项/优势）
     },
     (err) => {
       streamContent.value += `\n\n❌ 错误: ${err}`
@@ -604,45 +389,6 @@ async function handleSendChat() {
 function quickAction(text) {
   chatInput.value = text
   showInputPanel.value = true
-}
-
-// ==================== 岗位搜索 ====================
-async function handleSearchJobs() {
-  if (!searchKeyword.value.trim() || isSearching.value) return
-  isSearching.value = true
-  hasSearched.value = true
-  searchResults.value = []
-  expandedJob.value = -1
-
-  try {
-    const res = await api.searchJobs({
-      keyword: searchKeyword.value.trim(),
-      city: searchCity.value,
-      experience: searchExperience.value,
-    })
-    searchResults.value = res.jobs || []
-    if (searchResults.value.length === 0) {
-      ElMessage.warning('未找到匹配岗位，试试换个关键词')
-    } else {
-      ElMessage.success(`找到 ${searchResults.value.length} 个岗位`)
-    }
-  } catch (e) {
-    ElMessage.error('搜索失败：' + (e.message || '网络错误'))
-  } finally {
-    isSearching.value = false
-  }
-}
-
-function toggleJobDetail(idx) {
-  expandedJob.value = expandedJob.value === idx ? -1 : idx
-}
-
-function useJobJD(job) {
-  // 将选中岗位的 JD 文本填入分析面板
-  jdText.value = `【${job.title}】- ${job.company}\n城市：${job.city} | 薪资：${job.salary} | 经验：${job.experience}\n\n${job.jd_text}`
-  activeTab.value = 'analyze'
-  showInputPanel.value = true
-  ElMessage.success(`已填入「${job.title}」的JD，可直接开始分析`)
 }
 </script>
 
@@ -781,125 +527,11 @@ $radius-lg: 16px;
     }
   }
 }
-/* 会话卡片增强 */
-.session-card {
-  position: relative;
-  .session-more-btn {
-    position: absolute;
-    right: 8px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 24px;
-    height: 24px;
-    border: none;
-    background: transparent;
-    color: rgba(255,255,255,.3);
-    border-radius: 4px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    opacity: 0;
-    transition: all .15s;
-    &:hover { color: #fff; background: rgba(255,255,255,.1); }
-  }
-  &:hover .session-more-btn { opacity: 1; }
-}
-.session-card-time {
-  font-size: 10px;
-  color: rgba(255,255,255,.25);
-  display: block;
-  margin-top: 1px;
-}
-.rename-input {
-  width: 100%;
-  padding: 4px 8px;
-  border: 1px solid $primary-light;
-  border-radius: 5px;
-  background: rgba(255,255,255,.08);
-  color: #e2e8f0;
-  font-size: 13px;
-  outline: none;
-  font-family: inherit;
-}
-
-/* 右键菜单 */
-.ctx-menu {
-  position: fixed;
-  z-index: 9999;
-  background: #1e293b;
-  border: 1px solid rgba(255,255,255,.1);
-  border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0,0,0,.4);
-  padding: 6px 0;
-  min-width: 160px;
-  .ctx-item {
-    padding: 8px 16px;
-    font-size: 13px;
-    color: #e2e8f0;
-    cursor: pointer;
-    transition: background .12s;
-    &:hover { background: rgba(255,255,255,.08); }
-    &.danger { color: #f87171; }
-    &.danger:hover { background: rgba(248,113,113,.1); }
-  }
-}
-
 .session-empty {
   text-align: center;
   color: $text-muted;
   font-size: 12.5px;
   padding: 32px 0;
-}
-
-/* 用户画像面板 */
-.profile-panel {
-  padding: 12px 16px;
-  border-top: 1px solid rgba(255,255,255,.06);
-  flex-shrink: 0;
-
-  .profile-title {
-    font-size: 12px;
-    font-weight: 600;
-    color: #e2e8f0;
-    margin-bottom: 10px;
-  }
-  .profile-section {
-    margin-bottom: 8px;
-  }
-  .profile-label {
-    font-size: 11px;
-    color: $text-muted;
-    display: block;
-    margin-bottom: 5px;
-  }
-  .profile-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-  }
-  .tag-strength {
-    font-size: 10px;
-    padding: 2px 8px;
-    border-radius: 20px;
-    background: rgba(52, 211, 153, .12);
-    color: #34d399;
-    white-space: nowrap;
-    max-width: 120px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .tag-weakness {
-    font-size: 10px;
-    padding: 2px 8px;
-    border-radius: 20px;
-    background: rgba(251, 146, 60, .12);
-    color: #fb923c;
-    white-space: nowrap;
-    max-width: 120px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
 }
 
 .sidebar-bottom {
@@ -1348,220 +980,5 @@ $radius-lg: 16px;
   font-size: 11px;
   color: $text-muted;
   margin-top: 8px;
-}
-
-/* ==================== Toolbar Tabs ==================== */
-.toolbar-tabs {
-  display: flex;
-  gap: 4px;
-}
-.tab-btn {
-  padding: 6px 16px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: $text-secondary;
-  font-size: 13.5px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all .15s;
-  font-family: inherit;
-
-  &:hover { background: #f1f5f9; color: $text-primary; }
-  &.active {
-    background: $primary;
-    color: #fff;
-    box-shadow: 0 2px 8px $primary-glow;
-  }
-}
-
-/* ==================== 岗位搜索面板 ==================== */
-.search-panel {
-  background: $bg-card;
-  border-bottom: 1px solid $border;
-  padding: 16px 24px;
-  flex-shrink: 0;
-  max-height: 65vh;
-  overflow-y: auto;
-}
-
-.search-bar {
-  margin-bottom: 16px;
-}
-.search-input-group {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.search-main-input {
-  flex: 1;
-  padding: 10px 16px;
-  border: 1.5px solid $border;
-  border-radius: $radius-sm;
-  font-size: 14px;
-  font-family: inherit;
-  color: $text-primary;
-  outline: none;
-  transition: border-color .2s, box-shadow .2s;
-  &:focus {
-    border-color: $primary-light;
-    box-shadow: 0 0 0 3px $primary-glow;
-  }
-  &::placeholder { color: $text-muted; }
-}
-.search-select {
-  padding: 10px 12px;
-  border: 1.5px solid $border;
-  border-radius: $radius-sm;
-  font-size: 13px;
-  font-family: inherit;
-  color: $text-primary;
-  background: #fff;
-  outline: none;
-  cursor: pointer;
-  min-width: 90px;
-  &:focus { border-color: $primary-light; }
-}
-.btn-search {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 20px;
-  border: none;
-  border-radius: $radius-sm;
-  background: $primary;
-  color: #fff;
-  font-size: 13.5px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all .15s;
-  white-space: nowrap;
-  font-family: inherit;
-  svg { width: 16px; height: 16px; }
-  &:hover:not(:disabled) { background: darken($primary, 8%); }
-  &:disabled { opacity: .5; cursor: not-allowed; }
-}
-
-/* 搜索结果 */
-.search-result-header {
-  font-size: 13px;
-  color: $text-secondary;
-  margin-bottom: 12px;
-  strong { color: $primary; font-size: 15px; }
-}
-
-.job-card-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.job-card {
-  background: #f8fafc;
-  border: 1px solid $border;
-  border-radius: $radius-md;
-  padding: 16px;
-  transition: border-color .2s, box-shadow .2s;
-
-  &:hover {
-    border-color: $primary-light;
-    box-shadow: 0 2px 12px $primary-glow;
-  }
-}
-.job-card-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 8px;
-}
-.job-card-info {
-  .job-title {
-    font-size: 15px;
-    font-weight: 600;
-    color: $text-primary;
-    margin-bottom: 2px;
-  }
-  .job-company {
-    font-size: 13px;
-    color: $text-secondary;
-  }
-}
-.job-salary {
-  font-size: 16px;
-  font-weight: 700;
-  color: #ef4444;
-  white-space: nowrap;
-}
-.job-card-meta {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 8px;
-  .meta-tag {
-    font-size: 12px;
-    color: $text-muted;
-  }
-}
-.job-tags {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 10px;
-  flex-wrap: wrap;
-  .job-tag {
-    font-size: 11px;
-    padding: 2px 10px;
-    border-radius: 20px;
-    background: rgba(99,102,241,.08);
-    color: $primary;
-  }
-}
-.job-card-actions {
-  display: flex;
-  gap: 8px;
-}
-.btn-use-jd {
-  padding: 6px 14px;
-  border: none;
-  border-radius: 6px;
-  background: linear-gradient(135deg, $primary, #a78bfa);
-  color: #fff;
-  font-size: 12.5px;
-  cursor: pointer;
-  transition: all .15s;
-  font-family: inherit;
-  &:hover { transform: translateY(-1px); box-shadow: 0 3px 10px $primary-glow; }
-}
-.btn-view-jd {
-  padding: 6px 14px;
-  border: 1px solid $border;
-  border-radius: 6px;
-  background: #fff;
-  color: $text-secondary;
-  font-size: 12.5px;
-  cursor: pointer;
-  transition: all .15s;
-  font-family: inherit;
-  &:hover { border-color: $primary-light; color: $primary; }
-}
-.job-jd-detail {
-  margin-top: 10px;
-  .jd-text {
-    background: #fff;
-    border: 1px solid $border;
-    border-radius: $radius-sm;
-    padding: 14px;
-    font-size: 13px;
-    line-height: 1.7;
-    color: $text-primary;
-    white-space: pre-wrap;
-    word-wrap: break-word;
-    font-family: inherit;
-    max-height: 300px;
-    overflow-y: auto;
-  }
-}
-.search-empty {
-  text-align: center;
-  padding: 40px;
-  color: $text-muted;
-  font-size: 14px;
 }
 </style>

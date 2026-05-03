@@ -648,7 +648,7 @@ function useJobJD(job) {
 
 <style lang="scss" scoped>
 /* ==================== 颜色变量 ==================== */
-$sidebar-bg: #0f172a;
+$sidebar-bg: #e4e8f2;
 $sidebar-hover: #1e293b;
 $sidebar-active: #334155;
 $primary: #6366f1;
