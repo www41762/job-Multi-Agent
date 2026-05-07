@@ -97,8 +97,8 @@
 ### 1️⃣ 克隆项目
 
 ```bash
-git clone https://github.com/www41762/job-Multi-Agent
-cd job-agent
+git clone https://github.com/www41762/job-Multi-Agent.git
+cd job-Multi-Agent
 ```
 
 ### 2️⃣ 配置环境变量
@@ -116,9 +116,9 @@ LLM_MODEL=qwen-plus
 LLM_API_KEY=sk-your-api-key
 LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 
-# MCP 岗位搜索（已内置本地 MCP Server，开箱即用）
+# MCP 岗位搜索（对接 Boss 直聘真实 API）
 JOB_MCP_CMD=python
-JOB_MCP_ARGS=D:/your-path/backend/job_mcp_server.py
+JOB_MCP_ARGS=/absolute/path/to/backend/job_mcp_server.py
 JOB_MCP_TOOL_NAME=search_jobs
 ```
 
@@ -136,13 +136,33 @@ npm install
 npm run dev
 ```
 
-### 4️⃣ Docker 一键部署（推荐生产环境）
+### 4️⃣ 配置 Boss 直聘真实岗位搜索（可选）
+
+项目内置的 MCP Server 已对接 Boss 直聘 wapi，可获取**真实岗位数据**。首次使用需登录：
+
+```bash
+# 1. 安装 boss-agent-cli（提供浏览器自动化登录能力）
+pip install boss-agent-cli
+patchright install chromium
+
+# 2. 运行登录脚本（会弹出浏览器，扫码登录 Boss 直聘）
+python backend/boss_login_fix.py
+
+# 3. 将 Cookie 注入加密存储
+python backend/boss_inject_session.py
+```
+
+> ⚠️ Cookie 有效期约 7 天，过期后重新执行步骤 2-3 即可。
+> 
+> 💡 如果不配置 Boss 直聘登录，岗位搜索会自动降级为 LLM 智能生成模拟数据，不影响其他功能使用。
+
+### 5️⃣ Docker 一键部署（推荐生产环境）
 
 ```bash
 docker-compose up --build
 ```
 
-### 5️⃣ 访问应用
+### 6️⃣ 访问应用
 
 | 服务 | 地址 |
 |------|------|
@@ -178,6 +198,8 @@ docker-compose up --build
 │       ├── resumes/                # 上传的简历
 │       ├── vector_db/              # 向量存储 + SQLite
 │       └── chat_history/           # 历史记录
+│   ├── boss_login_fix.py            # Boss直聘登录工具（解决超时）
+│   └── boss_inject_session.py       # Cookie 注入 TokenStore
 ├── frontend/                       # Vue3 前端
 │   ├── src/
 │   │   ├── views/Home.vue          # 主交互页面
@@ -211,19 +233,25 @@ docker-compose up --build
 
 ## 🔌 MCP 架构说明
 
-本项目通过 [Model Context Protocol](https://modelcontextprotocol.io) 将**岗位搜索**能力解耦为独立的 MCP Server：
+本项目通过 [Model Context Protocol](https://modelcontextprotocol.io) 将**岗位搜索**能力解耦为独立的 MCP Server，并已成功对接 **Boss 直聘真实 API**：
 
 ```
+用户发起岗位搜索
+    ↓
 JobSearchTool (MCP Client)  ──stdio──▶  job_mcp_server.py (MCP Server)
-        │                                        │
-        │  如果 MCP 未配置或调用失败                │  声明 search_jobs 工具
-        ▼                                        ▼
-   LLM Fallback (Mock 生成)              可替换为真实招聘 API
+    │                                        │
+    │  检测 JOB_MCP_CMD 环境变量              │  调用 Boss 直聘 wapi
+    │                                        │  读取本地加密 Cookie 认证
+    ▼                                        ▼
+  如 MCP 未配置或调用失败               返回真实岗位 JSON
+    ↓                                  （公司/薪资/城市/JD/链接）
+LLM Fallback (智能生成模拟数据)
 ```
 
-- **开箱即用**：项目内置 `job_mcp_server.py`，无需额外安装即可体验完整链路
-- **可热插拔**：未来接入 Boss 直聘 / 猎聘等真实 API 时，只需替换 MCP Server 实现，主工程零改动
-- **容错降级**：当 MCP 服务不可用时，自动降级为 LLM 智能生成岗位数据
+- **真实数据**：通过 `boss-agent-cli` 的 TokenStore 读取加密登录凭证，直接请求 Boss 直聘搜索接口
+- **MCP 标准协议**：主工程通过 stdio 与 MCP Server 通信，架构完全解耦
+- **可热插拔**：如需接入猎聘/拉勾等平台，只需新增 MCP Server 实现，主工程零改动
+- **容错降级**：未登录或 Cookie 过期时，自动降级为 LLM 智能生成岗位数据，不影响使用
 
 ---
 
