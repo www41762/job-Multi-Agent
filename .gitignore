@@ -23,6 +23,10 @@ backend/data/vector_db/global_memory.db
 backend/data/resumes/
 backend/data/chat_history/
 
+# Boss直聘登录凭证（不在项目目录内，但以防万一）
+*.enc
+session.json
+
 # OS
 .DS_Store
 Thumbs.db
