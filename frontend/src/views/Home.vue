@@ -123,6 +123,9 @@
           </div>
 
           <div class="search-results" v-if="searchResults.length > 0">
+            <div class="simulated-notice" v-if="searchResults[0]?._simulated">
+              <span>⚠️ 当前为 AI 模拟数据，非真实招聘信息。如需真实岗位请配置 Boss 直聘登录。</span>
+            </div>
             <p class="search-count">找到 <strong>{{ searchResults.length }}</strong> 个岗位</p>
             <div class="job-card" v-for="(job, idx) in searchResults" :key="idx">
               <div class="job-card-head">
@@ -760,6 +763,19 @@ $drawer-w: 380px;
   &:focus { border-color: $accent; }
 }
 .search-count { font-size: 13px; color: $ink-secondary; margin: 14px 0 10px; strong { color: $accent; } }
+
+.simulated-notice {
+  background: #fff8e1;
+  border: 1px solid #ffe082;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 12px 0;
+  font-size: 13px;
+  color: #f57c00;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 
 /* Job cards */
 .job-card {

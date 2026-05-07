@@ -109,11 +109,14 @@ class JobSearchTool:
         :param experience: 经验要求（如 "1-3年"、"应届"）
         :return: 岗位列表
         """
-        # 测试是否启用 MCP
+        # 优先通过 MCP 获取真实岗位数据
         if self.mcp_cmd:
             mcp_results = await self._search_via_mcp(keyword, city, salary_min, salary_max, experience)
             if mcp_results is not None:
                 return mcp_results
+
+        # 降级为 LLM 模拟数据，在日志中发出警告
+        logger.warning("⚠️ MCP 岗位搜索不可用，降级为 LLM 模拟数据（非真实岗位）")
 
         conditions = [f"关键词：{keyword}"]
         if city:
@@ -138,6 +141,10 @@ class JobSearchTool:
                 cleaned = self._clean_json_response(response.content)
                 results = json.loads(cleaned)
                 if isinstance(results, list) and len(results) > 0:
+                    # 为每条模拟数据添加标记
+                    for item in results:
+                        item["_simulated"] = True
+                        item["_notice"] = "⚠️ 此为 AI 模拟数据，非真实招聘信息。如需真实岗位请配置 Boss 直聘登录。"
                     return results
             except (json.JSONDecodeError, Exception) as e:
                 if attempt < 2:
